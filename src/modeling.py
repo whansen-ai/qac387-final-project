@@ -11,7 +11,8 @@ def multiple_linear_regression(
     predictors: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
-    Fit multiple linear regression using statsmodels OLS (formula interface).
+    Fit multiple linear regression using statsmodels OLS (formula interface)
+    for numeric outcome and numeric and categorical predictors.
 
     - outcome must exist
     - predictors optional:
@@ -23,7 +24,7 @@ def multiple_linear_regression(
         raise ValueError(f"Outcome column '{outcome}' not found in dataframe.")
 
     if predictors is None:
-        predictors = [c for c in df.columns if c != outcome]
+        raise ValueError("You must specify the predictors for regression.")
 
     missing_preds = [p for p in predictors if p not in df.columns]
     if missing_preds:
