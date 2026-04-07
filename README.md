@@ -30,7 +30,7 @@ Fourth, interact with the AI agent by using commands of your choice. Note that y
 
 Fifth, press (y/n) to approve code development or tool usage from the AI agent. 
 
-## Cuations for using the app 
+## Cautions for using the app 
 
 Code generation from the AI agent may be incorrect or have minor bugs, all code generation and tool usage should be reviewed by the user first. 
 The current dataset is not entirely complete, currently it includes on 6 companies for testing purposes, however using WRDS we will be able to easily replicate our dataset with more recent financial data as well as a more robust list of stocks, ideally in the range of 500-2000 stocks. Further, it is of note that the agent to still sensitive to work choice, if you ask the agent to use a tool without naming some of the key words explicitly it may not recognize the tool. Lastly, the financial data included does not include financial data from months past January of 2026 (01/2026). 
