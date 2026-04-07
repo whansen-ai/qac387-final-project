@@ -18,7 +18,7 @@ In this project we seek to develop an application that will reduce the search ti
 
 First, clone the repo locally. 
 
-Second, download the requirements.txt dependancies using this bash command: 
+Second, create an activate a virtual working environment (.venv) and download the requirements.txt dependancies using this bash command: 
 
 pip install -r requirements.txt
 
