@@ -8,8 +8,7 @@ import statsmodels.formula.api as smf
 def multiple_linear_regression(
     df: pd.DataFrame,
     outcome: str,
-    predictors: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    predictors: Optional[List[str]] = None,) -> Dict[str, Any]:
     """
     Fit multiple linear regression using statsmodels OLS (formula interface)
     for numeric outcome and numeric and categorical predictors.
@@ -61,3 +60,131 @@ def multiple_linear_regression(
         "stderr": {str(k): float(v) for k, v in fitted.bse.items()},
     }
     return out
+
+
+def rank_stocks_by_ev_ebit(
+    df: pd.DataFrame,
+    top_n: int = 20,
+    latest_only: bool = True,
+    **kwargs
+) -> pd.DataFrame:
+    """
+    Rank stocks by EV/EBIT using WRDS-style column names.
+
+    EV = market value + long-term debt + current debt - cash
+    EV/EBIT = enterprise value / EBIT
+
+    Lower EV/EBIT indicates a cheaper stock.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Input dataframe with WRDS financial columns.
+    top_n : int, default 20
+        Number of cheapest stocks to return.
+    latest_only : bool, default True
+        If True, keep only the most recent observation per ticker.
+
+    Returns
+    -------
+    pd.DataFrame
+        Ranked dataframe of cheapest stocks by EV/EBIT.
+    """
+
+    required_columns = [
+        "(tic) Ticker Symbol",
+        "(datadate) Data Date",
+        "(mkvalt) Market Value - Total - Fiscal",
+        "(dltt) Long-Term Debt - Total",
+        "(dlc) Debt in Current Liabilities - Total",
+        "(che) Cash and Short-Term Investments",
+        "(ebit) Earnings Before Interest and Taxes",
+    ]
+
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        raise ValueError(
+            f"Missing required columns for EV/EBIT ranking: {missing_columns}"
+        )
+
+    working_df = df.copy()
+
+    # Rename columns to simpler internal names
+    working_df = working_df.rename(
+        columns={
+            "(tic) Ticker Symbol": "ticker",
+            "(datadate) Data Date": "date",
+            "(mkvalt) Market Value - Total - Fiscal": "market_value",
+            "(dltt) Long-Term Debt - Total": "long_term_debt",
+            "(dlc) Debt in Current Liabilities - Total": "current_debt",
+            "(che) Cash and Short-Term Investments": "cash",
+            "(ebit) Earnings Before Interest and Taxes": "ebit",
+        }
+    )
+
+    # Convert date
+    working_df["date"] = pd.to_datetime(working_df["date"], errors="coerce")
+
+    # Drop rows missing key fields
+    working_df = working_df.dropna(
+        subset=[
+            "ticker",
+            "date",
+            "market_value",
+            "long_term_debt",
+            "current_debt",
+            "cash",
+            "ebit",
+        ]
+    )
+
+    # Keep only latest observation per ticker
+    if latest_only:
+        working_df = working_df.sort_values(["ticker", "date"])
+        working_df = working_df.groupby("ticker", as_index=False).tail(1)
+
+    # Compute enterprise value
+    working_df["enterprise_value"] = (
+        working_df["market_value"]
+        + working_df["long_term_debt"]
+        + working_df["current_debt"]
+        - working_df["cash"]
+    )
+
+    # Keep only valid rows for EV/EBIT
+    working_df = working_df[
+        (working_df["enterprise_value"] > 0) &
+        (working_df["ebit"] > 0)
+    ]
+
+    if working_df.empty:
+        raise ValueError(
+            "No valid rows remain after filtering for positive enterprise value and EBIT."
+        )
+
+    # Compute EV/EBIT
+    working_df["ev_ebit"] = working_df["enterprise_value"] / working_df["ebit"]
+
+    ranked_df = (
+        working_df[
+            [
+                "ticker",
+                "date",
+                "market_value",
+                "long_term_debt",
+                "current_debt",
+                "cash",
+                "enterprise_value",
+                "ebit",
+                "ev_ebit",
+            ]
+        ]
+        .sort_values(by="ev_ebit", ascending=True)
+        .head(top_n)
+        .reset_index(drop=True)
+    )
+
+    ranked_df.index = ranked_df.index + 1
+    ranked_df.index.name = "rank"
+
+    return ranked_df

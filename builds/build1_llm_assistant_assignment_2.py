@@ -78,6 +78,7 @@ from pathlib import Path
 import sys
 from dotenv import load_dotenv
 
+from langchain_core.runnables import RunnableConfig
 # LangChain / OpenAI
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -88,8 +89,12 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 # import reusable functions from build0 (defined in src/__init__.py)
 # These are just examples of functions you might have defined in build0 Adjust as needed.
 # Add project root to Python path so it can find the src folder
+
 sys.path.append(str(Path(__file__).resolve().parents[1]))
-from src import ensure_dirs, read_data, basic_profile
+
+from src.io_utils import ensure_dirs, read_data
+
+from src.profiling import basic_profile
 
 
 # -------------------------------------------------------------------------------------------------
@@ -105,13 +110,23 @@ from src import ensure_dirs, read_data, basic_profile
 #
 # Tip: Keep it short and explicit. You can iterate after testing.
 SYSTEM_PROMPT = """
-TODO: Replace this with your own system prompt.
+You are a helpful and precise data analysis assistant for students. 
+You ONLY see the dataset schema, which includes the column names and their data types. 
+Do NOT hallucinate or invent any columns that are not in the schema. When asked a question, provide a clear and concise answer based solely on the information in the schema. 
+If the question cannot be answered with the given schema, say "I don't know" instead of guessing. 
+Always format your response with:
+1. Direct Answer
+A short explanation addressing the user’s question.
 
-Required elements:
-- Role
-- Only sees schema
-- No hallucinated columns
-- Output format instructions
+2. Relevant Variables
+A bullet list of columns from the schema that relate to the question.
+
+3. Suggested Analysis or Research Questions
+2–4 ideas for how the dataset could be analyzed to answer the question.
+
+4. Clarifying Question (if needed)
+Ask the user for more information if the request is ambiguous or cannot be answered with schema alone.
+
 """
 
 
@@ -136,7 +151,7 @@ def profile_to_schema_text(profile: dict) -> str:
         "",
         "Columns and dtypes:",
     ]
-    for col in profile["_____"]:
+    for col in profile["columns"]:
         lines.append(f"- {col}: {profile['dtypes'].get(col)}")
 
     return "\n".join(lines)
@@ -151,22 +166,22 @@ def build_chain(
 ):
     """
     Returns either:
-      - a normal LCEL chain (no memory), OR
-      - a RunnableWithMessageHistory (memory-enabled chain)
+    - a normal LCEL chain (no memory), OR
+    - a RunnableWithMessageHistory (memory-enabled chain)
     """
     llm = ChatOpenAI(model=model, temperature=temperature, streaming=stream)
 
     if memory:
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", _________),
+                ("system", SYSTEM_PROMPT),
                 ("human", "Dataset schema:\n{schema_text}"),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "User question:\n{user_query}"),
             ]
         )
 
-        base_chain = prompt | ______ | StrOutputParser()
+        base_chain = prompt | llm | StrOutputParser()
 
         history = InMemoryChatMessageHistory()
         chain_with_history = RunnableWithMessageHistory(
@@ -244,28 +259,28 @@ def main():
     )
 
     parser.add_argument(
-        "_____",
-        type=_____,
-        required=_____,
+        "--data",
+        type= str,
+        required= True,
         help="Path to CSV file",
     )
-    parser.add_argument("--report_dir", type=str, default="_____")
-    parser.add_argument("--model", type=str, default="_____")
-    parser.add_argument("--temperature", type=float, default=_____)
+    parser.add_argument("--report_dir", type=str, default="reports")
+    parser.add_argument("--model", type=str, default="gpt-4o-mini")
+    parser.add_argument("--temperature", type=float, default=0.2)
 
     parser.add_argument(
         "--quiet_schema",
-        action="_____",
+        action="store_true",
         help="Do not print schema automatically at startup",
     )
     parser.add_argument(
         "--memory",
-        action="_____",
+        action="store_true",
         help="Enable conversation memory for this session",
     )
     parser.add_argument(
         "--stream",
-        action="_____",
+        action="store_true",
         help="Stream model output to terminal as it is generated",
     )
 
@@ -291,7 +306,7 @@ def main():
         model=args.model,
         temperature=args.temperature,
         stream=args.stream,
-        memory=args.________,
+        memory=args.memory,
     )
 
     while True:
@@ -317,9 +332,9 @@ def main():
         # Streaming vs non-streaming response handling. If streaming is enabled,
         # we print chunks as they come in.
         inputs = {"schema_text": schema_text, "user_query": user_query}
-        config = (
-            {"configurable": {"session_id": "cli-session"}} if args.memory else None
-        )
+        config = ({"configurable": {"session_id": "cli-session"}} if args.memory else None)
+        # I included this config to remove error messages
+        config: RunnableConfig | None = ({"configurable": {"session_id": "cli-session"}} if args.memory else None)
 
         if args.stream:
             print()

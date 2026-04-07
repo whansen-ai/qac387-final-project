@@ -141,8 +141,8 @@ def pearson_correlation(
 
     # Exact Pearson r + p-value
     r, p_value = stats.pearsonr(sub[x].to_numpy(), sub[y].to_numpy())
-    r = float(r)
-    p_value = float(p_value)
+    r = float(r) # type: ignore
+    p_value = float(p_value) # type: ignore
     r2 = r * r
 
     # Fisher z confidence interval

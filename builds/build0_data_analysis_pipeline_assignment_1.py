@@ -38,6 +38,7 @@ replacing Target_Column, Outcome_Column, Predictor1, Predictor2 with actual colu
 
 python builds/Build0_data_analysis_pipeline_assignment_1.py --data data/penguins.csv --target Target_Column --outcome Outcome_Column --predictors Predictor1,Predictor2 --report_dir reports/
 
+python builds/Build0_data_analysis_pipeline_assignment_1.py --data data/penguins.csv --target flipper_length_mm --outcome bill_depth_mm --predictors body_mass_g, --report_dir reports/
 
 Outputs will be written to:
 reports/
@@ -57,9 +58,11 @@ figures/
 from __future__ import annotations
 
 import argparse
+from importlib.resources import path
 import json
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
+from xml.parsers.expat import model
 
 import numpy as np
 import pandas as pd
@@ -74,16 +77,17 @@ def ensure_dirs(reports: Path) -> None:
     """Create output folders."""
     # BLANK 1: create the figures folder
     # HINT: (reports / "figures").mkdir(...)
-    ___BLANK_1___
+    (reports / "figures").mkdir(parents=True, exist_ok=True)
 
 
 def read_data(path: Path) -> pd.DataFrame:
     """Read a CSV file into a DataFrame with basic error handling."""
     # BLANK 2: raise FileNotFoundError if path does not exist
-    ___BLANK_2___
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
 
     # BLANK 3: read the CSV into df
-    ___BLANK_3___
+    df = pd.read_csv(path)
 
     if df.empty:
         raise ValueError("Loaded dataframe is empty.")
@@ -101,7 +105,7 @@ def basic_profile(df: pd.DataFrame) -> dict:
         "n_rows": int(df.shape[0]),
         "n_cols": int(df.shape[1]),
         # BLANK 4: list of column names
-        "columns": ___BLANK_4___,
+        "columns": list(df.columns),
         "dtypes": {c: str(df[c].dtype) for c in df.columns},
         "n_missing_total": int(df.isna().sum().sum()),
         "missing_by_col": df.isna().sum().to_dict(),
@@ -113,7 +117,7 @@ def split_columns(df: pd.DataFrame) -> Tuple[List[str], List[str]]:
     """Identify and split numeric vs categorical columns into numeric and categorical lists."""
     # BLANK 5: list numeric column names
     # HINT: df.select_dtypes(include=["number"]).columns.______
-    numeric_cols = ___BLANK_5___
+    numeric_cols = df.select_dtypes(include=["number"]).columns.tolist()
 
     # Treat everything else as categorical
     cat_cols = [c for c in df.columns if c not in numeric_cols]
@@ -144,7 +148,7 @@ def summarize_numeric(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame
 
     # BLANK 6: Create a transposed describe table with percentiles 0.25, 0.5, 0.75
     # HINT: df[numeric_cols].describe(...).T
-    summary = ___BLANK_6___
+    summary = df[numeric_cols].describe(percentiles = [0.25,0.5, 0.75]).T
 
     summary = summary.rename(columns={"50%": "median", "25%": "p25", "75%": "p75"})
     summary.insert(0, "column", summary.index)
@@ -164,7 +168,7 @@ def summarize_categorical(
         n_unique = int(series.nunique(dropna=True))
 
         # BLANK 7: top_k value counts (drop missing)
-        top = ___BLANK_7___
+        top = series.value_counts(dropna=True).head(top_k)
 
         rows.append(
             {
@@ -198,8 +202,17 @@ def missingness_table(df: pd.DataFrame) -> pd.DataFrame:
     - df.isna().mean() gives missing rates
     - df.isna().sum() gives missing counts
     """
-    raise NotImplementedError("Student must implement missingness_table(df).")
+    missing_rates = df.isna().mean()
+    missing_counts = df.isna().sum()
+    miss_df = pd.DataFrame({
+        "column": df.columns,
+        "missing_rate": missing_rates.values,
+        "missing_count": missing_counts.values
+    })
+    miss_df = miss_df.sort_values(by="missing_rate", ascending=False).reset_index(drop=True)
+    return miss_df
 
+import statsmodels.api as sm
 
 def multiple_linear_regression(
     df: pd.DataFrame, outcome: str, predictors: Optional[List[str]] = None
@@ -228,17 +241,51 @@ def multiple_linear_regression(
     IMPORTANT:
     - Convert any numpy/pandas scalars to Python floats/ints before returning.
     """
+
+    if not pd.api.types.is_numeric_dtype(df[outcome]):
+        raise ValueError(f"Outcome column '{outcome}' must be numeric for linear regression.")
+
+    if predictors is None:
+        predictors = df.select_dtypes(include=["number"]).columns.tolist()
+        predictors.remove(outcome)
+
+
+    cols_needed = [outcome] + predictors
+    df_clean = df[cols_needed].dropna()
+
+    X = df_clean[predictors]
+    X = sm.add_constant(X)
+    y = df_clean[outcome]
+    model = sm.OLS(y, X).fit()
+
+
+    n_rows_used = int(len(df_clean))
+    r_squared = float(model.rsquared)
+    adj_r_squared = float(model.rsquared_adj)
+
+    return {
+        "outcome": outcome,
+        "predictors": predictors,
+        "n_rows_used": n_rows_used,
+        "r_squared": r_squared,
+        "adj_r_squared": adj_r_squared,
+        "intercept": float(model.params['const']),
+        "coefficients": {predictor: float(model.params[predictor]) for predictor in predictors}
+
+    }
+# Not sure if I should remove the raise NotImplementedError line below
+"""
     raise NotImplementedError(
         "Student must implement multiple_linear_regression(df, outcome, predictors=None)."
     )
-
+"""
 
 def correlations(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame:
     """Compute correlations for numeric columns."""
     if len(numeric_cols) < 2:
         return pd.DataFrame()
     # BLANK 8: compute correlation matrix for numeric columns
-    corr = ___BLANK_8___
+    corr = df[numeric_cols].corr()
     return corr
 
 
@@ -252,7 +299,7 @@ def plot_missingness(miss_df: pd.DataFrame, out_path: Path, top_n: int = 30) -> 
     plot_df = miss_df.head(top_n).iloc[::-1]
     plt.figure()
     # BLANK 9: create a horizontal bar chart using column names and missing_rate
-    ___BLANK_9___
+    plt.barh(plot_df["column"], plot_df["missing_rate"])
     plt.xlabel("Missing rate")
     plt.title(f"Top {min(top_n, len(miss_df))} columns by missingness")
     plt.tight_layout()
@@ -267,8 +314,8 @@ def plot_corr_heatmap(corr: pd.DataFrame, out_path: Path) -> None:
     plt.figure()
     plt.imshow(corr.values, aspect="auto")
     plt.colorbar()
-    plt.xticks(range(len(corr.columns)), corr.columns, rotation=90, fontsize=7)
-    plt.yticks(range(len(corr.index)), corr.index, fontsize=7)
+    plt.xticks(range(len(corr.columns)), list(map(str, corr.columns)), rotation=90, fontsize=7)
+    plt.yticks(range(len(corr.index)), list(map(str, corr.index)), fontsize=7)
     plt.title("Correlation heatmap (numeric columns)")
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
@@ -307,7 +354,7 @@ def plot_bar_charts(
             continue
         vc = series.value_counts().head(top_k)
         plt.figure()
-        plt.bar(vc.index.astype(str), vc.values)
+        plt.bar(vc.index.astype(str), vc.to_numpy())
         plt.title(f"Top {min(top_k, len(vc))} values: {c}")
         plt.xticks(rotation=90, fontsize=7)
         plt.tight_layout()
@@ -481,7 +528,7 @@ def main():
         if args.predictors:
             # BLANK 10: parse comma-separated predictors into a list of cleaned names
             # HINT: [p.strip() for p in args.predictors.split(",") if p.strip()]
-            preds = ___BLANK_10___
+            preds = [p.strip() for p in args.predictors.split(",") if p.strip()]
 
         # Run the regression
         reg_results = multiple_linear_regression(
